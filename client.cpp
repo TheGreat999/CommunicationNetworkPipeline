@@ -9,6 +9,52 @@ using namespace std;
 #define VIDEOPORT 8001
 #define BUFFSIZE 2048
 
+struct sockaddr_in servertcp;
+struct sockaddr_in serverudp;
+socklen_t serverlentcp;
+socklen_t serverlenudp;
+int sockfdtcp;
+int sockfdudp;
+
+void inittcp(char server_ip[]){
+    sockfdtcp = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfdtcp < 0) {
+        perror(" socket");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&servertcp, 0, sizeof(servertcp));
+    servertcp.sin_family = AF_INET;
+    servertcp.sin_addr.s_addr = INADDR_ANY;
+    servertcp.sin_port = htons(JOINPORT);
+    inet_pton(AF_INET, server_ip, &servertcp.sin_addr);
+
+    if (bind(sockfdtcp, (struct sockaddr *)&servertcp, sizeof(servertcp)) < 0) {
+        perror("bind");
+        close(sockfdtcp);
+        exit(EXIT_FAILURE);
+    }
+}
+
+void initudp(char server_ip[]){
+    sockfdudp = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfdtcp < 0) {
+        perror(" socket");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&serverudp, 0, sizeof(serverudp));
+    serverudp.sin_family = AF_INET;
+    serverudp.sin_addr.s_addr = INADDR_ANY;
+    serverudp.sin_port = htons(JOINPORT);
+    inet_pton(AF_INET, server_ip, &serverudp.sin_addr);
+
+    if (bind(sockfdudp, (struct sockaddr *)&serverudp, sizeof(serverudp)) < 0) {
+        perror("bind");
+        close(sockfdudp);
+        exit(EXIT_FAILURE);
+    }
+}
 
 //roomid username
 int main(int argc,char* argv[]){
@@ -16,11 +62,8 @@ int main(int argc,char* argv[]){
     //     cout<<"wrong input";
     //     return -1;
     // }
-    unordered_map<string,sockaddr_in> users;
-    struct sockaddr_in discover;
-    struct sockaddr_in server;
-    socklen_t disclen,serverlen;
-    int sockfd;
+    
+
 
     
     // string username =argv[2];
@@ -31,33 +74,19 @@ int main(int argc,char* argv[]){
     // string room_id= argv[1];
 
     string username = "nayan";
-    string room_id = "abcd";
+    string room_id = "abcdef";
+    char server_ip[] = "127.0.0.0";
 
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
-    }
-
-    memset(&discover, 0, sizeof(discover));
-    discover.sin_family = AF_INET;
-    discover.sin_addr.s_addr = INADDR_ANY;
-    discover.sin_port = htons(JOINPORT);
-    inet_pton(AF_INET, "255.255.255.255", &discover.sin_addr);
-
-    if (bind(sockfd, (struct sockaddr *)&discover, sizeof(discover)) < 0) {
-        perror("bind");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-
-    int buff[BUFFSIZE]={1};
-    sendto(sockfd,buff,sizeof(buff),0,(struct sockaddr * )&discover,disclen);
-    int n=recvfrom(sockfd,buff,BUFFSIZE,0,(struct sockaddr *)&server,&serverlen);
-    while(n<0){
-        sendto(sockfd,buff,sizeof(buff),0,(struct sockaddr * )&discover,disclen);
-        buff[0]=1;
-        n=recvfrom(sockfd,buff,BUFFSIZE,0,(struct sockaddr *)&server,&serverlen);
-    }
+    inittcp(server_ip);
+    initudp(server_ip);
+   
+    // int buff[BUFFSIZE]={1};
+    // sendto(sockfd,buff,sizeof(buff),0,(struct sockaddr * )&server,serverlen);
+    // int n=recvfrom(sockfd,buff,BUFFSIZE,0,(struct sockaddr *)&udp,&udplen);
+    // while(n<0){
+    //     sendto(sockfd,buff,sizeof(buff),0,(struct sockaddr * )&server,serverlen);
+    //     buff[0]=1;
+    //     n=recvfrom(sockfd,buff,BUFFSIZE,0,(struct sockaddr *)&udp,&udplen);
+    // }
     return 0;
 };
