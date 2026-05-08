@@ -1,22 +1,25 @@
 #include <bits/stdc++.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-
+#include <iomanip>
 
 using namespace std;
 
 #define JOINPORT 8000
 #define VIDEOPORT 8001
-#define BUFFSIZE 2048
+#define BUFFSIZE 4096
 
 struct sockaddr_in servertcp;
 struct sockaddr_in serverudp;
+struct sockaddr_in broadcastaddr;
 socklen_t serverlentcp;
 socklen_t serverlenudp;
+socklen_t broadcastlen;
 int sockfdtcp;
 int sockfdudp;
+int broadcastfd;
 
-void inittcp(char server_ip[]){
+void inittcp(string server_ip){
     sockfdtcp = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfdtcp < 0) {
         perror(" socket");
@@ -27,7 +30,7 @@ void inittcp(char server_ip[]){
     servertcp.sin_family = AF_INET;
     servertcp.sin_addr.s_addr = INADDR_ANY;
     servertcp.sin_port = htons(JOINPORT);
-    inet_pton(AF_INET, server_ip, &servertcp.sin_addr);
+    inet_pton(AF_INET, server_ip.c_str(), &servertcp.sin_addr);
 
     if (bind(sockfdtcp, (struct sockaddr *)&servertcp, sizeof(servertcp)) < 0) {
         perror("bind");
@@ -36,7 +39,7 @@ void inittcp(char server_ip[]){
     }
 }
 
-void initudp(char server_ip[]){
+void initudp(string server_ip){
     sockfdudp = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfdtcp < 0) {
         perror(" socket");
@@ -47,7 +50,7 @@ void initudp(char server_ip[]){
     serverudp.sin_family = AF_INET;
     serverudp.sin_addr.s_addr = INADDR_ANY;
     serverudp.sin_port = htons(JOINPORT);
-    inet_pton(AF_INET, server_ip, &serverudp.sin_addr);
+    inet_pton(AF_INET, server_ip.c_str(), &serverudp.sin_addr);
 
     if (bind(sockfdudp, (struct sockaddr *)&serverudp, sizeof(serverudp)) < 0) {
         perror("bind");
@@ -56,37 +59,101 @@ void initudp(char server_ip[]){
     }
 }
 
-//roomid username
+void initbroadcast(){
+    broadcastfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfdtcp < 0) {
+        perror(" socket");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&broadcastaddr, 0, sizeof(broadcastaddr));
+    broadcastaddr.sin_family = AF_INET;
+    broadcastaddr.sin_addr.s_addr = INADDR_ANY;
+    broadcastaddr.sin_port = htons(JOINPORT);
+    inet_pton(AF_INET, "255.255.255.255", &broadcastaddr.sin_addr);
+
+    if (bind(broadcastfd, (struct sockaddr *)&broadcastaddr, sizeof(broadcastaddr)) < 0) {
+        perror("bind");
+        close(broadcastfd);
+        exit(EXIT_FAILURE);
+    }
+}
+
+
 int main(int argc,char* argv[]){
-    // if(argc!=3){
-    //     cout<<"wrong input";
-    //     return -1;
-    // }
-    
-
-
-    
-    // string username =argv[2];
-    // if(username.size()>20){
-    //     cout<<"max username len <= 20\n";
-    //     return -1;
-    // }
-    // string room_id= argv[1];
+    if(argc!=2){
+        cout<<"wrong input";
+        return -1;
+    }
+    string username =argv[2];
+    if(username.size()>20){
+        cout<<"max username len <= 20\n";
+        return -1;
+    }
 
     string username = "nayan";
     string room_id = "abcdef";
-    char server_ip[] = "127.0.0.0";
+    string server_ip = "127.0.0.0";
+
+    
+    initbroadcast();
+
+    char tcpbuffer[BUFFSIZE];
+    char udpbuffer[BUFFSIZE];
+
+
+    timeval tv{};
+    tv.tv_sec = 2;
+    setsockopt(broadcastfd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+    vector<string> roomids;
+    vector<string> server_ips;
+    while(true){\
+
+        char broad[] = "1";
+        sendto(broadcastfd,broad,1,0, (sockaddr *)& broadcastaddr, broadcastlen);
+        
+        while(true){
+            char roomid[6];
+            int n = recvfrom(broadcastfd, roomid, 6, 0, (sockaddr*) &broadcastaddr, &broadcastlen);
+            if(n < 0) break;
+            roomids.push_back(string(roomid,n));
+            server_ips.push_back(string(inet_ntoa(broadcastaddr.sin_addr)));
+
+        }
+
+        if(!roomids.empty())break;
+    
+        cout<<"No room found. Type \"yes\" to rescan again";
+        string r;
+        cin>>r;
+        if(r != "yes")break;
+
+    }
+
+    cout << left << setw(5)  << "SN" << setw(10) << "ROOM" << setw(25) << "SERVER" << '\n';
+
+    cout << string(40, '-') << '\n';
+
+    for(int i = 0; i < roomids.size(); i++){
+        cout << left << setw(5)  << i + 1 << setw(10) << roomids[i] << setw(25) << server_ips[i] << ':' << VIDEOPORT << '\n';
+    }
+    cout<<"Type the SN of the room you want to join\n";
+    int i;
+    while(true){
+        cin>>i;
+        i--;
+        if(i >= 0 && i < roomids.size())break;
+
+        cout<<"invalid SN please type a correct SN\n";
+
+    }
+
+    room_id = roomids[i];
+    server_ip = server_ips[i];
 
     inittcp(server_ip);
     initudp(server_ip);
-   
-    // int buff[BUFFSIZE]={1};
-    // sendto(sockfd,buff,sizeof(buff),0,(struct sockaddr * )&server,serverlen);
-    // int n=recvfrom(sockfd,buff,BUFFSIZE,0,(struct sockaddr *)&udp,&udplen);
-    // while(n<0){
-    //     sendto(sockfd,buff,sizeof(buff),0,(struct sockaddr * )&server,serverlen);
-    //     buff[0]=1;
-    //     n=recvfrom(sockfd,buff,BUFFSIZE,0,(struct sockaddr *)&udp,&udplen);
-    // }
+
+    
     return 0;
 };

@@ -9,7 +9,7 @@ using namespace std;
 #define CAP 2
 #define JOINPORT 8000
 #define VIDEOPORT 8001
-#define BUFFSIZE 2048
+#define BUFFSIZE 4096
 
 #define eventqueuesize 128
 
@@ -48,8 +48,7 @@ enum AdminState{
 
 void TCPBroadcast(string msg){
     for(client c : clients){
-        const char* m = msg.c_str();
-        send(c.fd, m, sizeof(m), 0);
+        send(c.fd, msg.c_str(),msg.size(), 0);
     }
 }
 
@@ -323,8 +322,31 @@ Enter command to perform an action
                 }
             }
 
-            else if(fd == sockfd_udp){//video data receive
-
+            else if(fd == sockfd_udp){//raw data forwarding and advertisment
+                char buff[BUFFSIZE];
+                sockaddr_in client_addr;
+                socklen_t l;
+                int n =recvfrom(sockfd_udp,buff,sizeof(buff),0,(sockaddr* )& client_addr, &l);
+                if(n < 0)continue;
+                if(buff[0] == '1'){ // Request info
+                    string m = "1" + room_id;
+                    sendto(sockfd_udp,m.c_str(),sizeof(m.c_str()),0,(sockaddr* )& client_addr,l);
+                }
+                else{ // raw stream data
+                    uint8_t sz =  buff[1];
+                    string user(buff + 2, buff + 2 + sz);
+                    char* data = buff + 2 + sz;
+                    int datasize = n - 2 -sz;
+                    vector<uint8_t> pkt;
+                    pkt.push_back(0);
+                    pkt.push_back(sz);
+                    pkt.insert(pkt.end(),user.begin(),user.end());
+                    pkt.insert(pkt.end(),data, data + datasize);
+                    for(client c : clients){
+                        if(c.username == user)continue;
+                        sendto(sockfd_udp,pkt.data(),pkt.size(),0,(sockaddr* )& client_addr,l);
+                    }
+                }
             }
 
             else{//user want to leave
