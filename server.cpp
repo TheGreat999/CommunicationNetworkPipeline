@@ -40,14 +40,74 @@ int sockfd_udp;
 socklen_t disclen;
 socklen_t roomlen;
 
+enum AdminState{
+    WAIT_COMMAND,
+    WAIT_REMOVE_USERNAME,
+    WAIT_BROADCAST_MESSAGE
+};
+
+void TCPBroadcast(string msg){
+    for(client c : clients){
+        const char* m = msg.c_str();
+        send(c.fd, m, sizeof(m), 0);
+    }
+}
+
+void addToEpoll(int fd){
+    epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = fd;
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, 0, &ev);
+}
+
+void removeUser(int fd){
+    int idx = 0;
+    for(auto& c: clients){
+        if(fd == c.fd){
+            close(fd);
+            break;
+        }
+        idx ++;
+    }
+
+    if(idx == clients.size()){
+        perror("Message received from an unknown client\n");
+        return;
+    }
+    
+    clients.erase(clients.begin() + idx);
+    string m = clients[idx].username + " left the room.\n";
+    cout<<m;
+    TCPBroadcast(m);
+    epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, nullptr);
+}
+void removeUser(string username){
+    int idx = 0;
+    for(auto& c:clients){
+        if(c.username == username){
+            char msg[] = "The admin removed you\n";
+            send(c.fd ,msg ,sizeof(msg),0);
+            close(c.fd);
+            break;
+        }
+        idx ++;
+    }
+    if(idx == clients.size()){
+        cout<<"User not found\n";
+        return;
+    }
+    string m = clients[idx].username + " left the room.\n";
+    cout<<"Successfully removed "<<clients[idx].username<<'\n';
+    clients.erase(clients.begin() + idx);
+    TCPBroadcast(m);
+}
+
+
 void initstdio(){           
     int flags = fcntl(0, F_GETFL, 0);
     fcntl(0, F_SETFL, flags | O_NONBLOCK);
-    epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = 0;
-    epoll_ctl(epollfd, EPOLL_CTL_ADD, 0, &ev);
-}
+    addToEpoll(0);
+} 
 
 void initTCPsock(){
     sockfd_tcp = socket(AF_INET, SOCK_STREAM, 0);
@@ -74,10 +134,7 @@ void initTCPsock(){
 
     //adding server tcp fd in events
     fcntl(sockfd_tcp, F_SETFL, O_NONBLOCK);
-    epoll_event ev1;
-    ev1.events = EPOLLIN | EPOLLRDHUP;
-    ev1.data.fd = sockfd_tcp;
-    epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd_tcp, &ev1);
+    addToEpoll(sockfd_tcp);
 
 
 }
@@ -102,12 +159,11 @@ void initUDPsock(){
 
     //adding server udp fd in events
     fcntl(sockfd_udp, F_SETFL, O_NONBLOCK);
-    epoll_event ev2;
-    ev2.events = EPOLLIN | EPOLLRDHUP;
-    ev2.data.fd = sockfd_udp;
-    epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd_udp, &ev2);
+    addToEpoll(sockfd_udp);
 
 }
+
+
 
 int main(){
 
@@ -130,8 +186,11 @@ Enter command to perform an action
     remove : remove an user
     close : close the meeting
     list : list all users
+    broadcast : broadcast a message to all users
+
 )";
     cout<<control_panel;
+    AdminState admin_state = WAIT_COMMAND;
     
     while(1){
         int n = epoll_wait(epollfd,events,eventqueuesize,-1);
@@ -140,29 +199,61 @@ Enter command to perform an action
 
             if(fd==0){//stdin
                 
-                string command;
-                cin>>command;
-                // read(fd,)
-                if(command == "remove"){
-                    cout<<"Enter username of the user to remove\n";
-                    string user;
+                char com[BUFFSIZE];
+                int n = read(fd,com,BUFFSIZE);
+                string input(com, n);
+                if(!input.empty() && input.back() == '\n') input.pop_back();
+                switch(admin_state){
 
-                    cin>>user;
-                    bool found = false;
-                    for(auto& c:clients){
-                        if(c.username == user){
-                            char msg[] = "The admin removed you\n";
-                            send(c.fd ,msg ,sizeof(msg),0);
-                            close(c.fd);
-                            found = true;
-                            break;
+                    case WAIT_COMMAND:
+
+                        if(input == "remove"){
+                            cout << "Enter username\n";
+                            admin_state = WAIT_REMOVE_USERNAME;
                         }
-                    }
-                    if(!found){
-                        cout<<"User not found\n";
-                    }
+
+                        else if(input == "broadcast"){
+                            cout << "Enter message\n";
+                            admin_state = WAIT_BROADCAST_MESSAGE;
+                        }
+
+                        else if(input == "list"){
+                            for(client c : clients){
+                                cout<<c.username<<' ';
+                            }
+                            cout<<'\n';
+                            cout<<control_panel;
+                        }
+
+                        else if(input == "close"){
+                            string m ="The room is closed by the admin\n";
+                            TCPBroadcast(m);
+                            for(client c : clients){
+                                removeUser(c.fd);
+                            }
+                            close(sockfd_tcp);
+                            return 0;
+                        }
+                        else{
+                            cout << "Unknown command\n";
+                        }
+
+                        break;
+
+                    case WAIT_REMOVE_USERNAME:
+                        removeUser(input);
+                        admin_state = WAIT_COMMAND;
+                        cout<<control_panel;
+                        break;
+
+                    case WAIT_BROADCAST_MESSAGE:
+                        TCPBroadcast(input);
+                        admin_state = WAIT_COMMAND;
+                        cout<<control_panel;
+                        break;
+
                 }
-                cout<<control_panel;
+
                 //do things
 
                 // cout<<"console boilerplate\n";
@@ -181,6 +272,7 @@ Enter command to perform an action
                         } else {
                             perror("client not accepted\n");
                             break;
+
                         }
                     }
 
@@ -197,7 +289,7 @@ Enter command to perform an action
                     char buffer[BUFFSIZE];
                     int n = read(clientfd, buffer, BUFFSIZE);
                     if(n<=6){
-                        close(clientfd);
+                        close(clientfd); 
                         continue;
                     }
                     string recvid(buffer,6);
@@ -218,15 +310,16 @@ Enter command to perform an action
                     send(clientfd, msg, sizeof(msg), 0);
                     cout<<"user "<<username<<" joined\n";
 
+                    string m = username + " joined the room.\n";
+                    for(client c : clients){
+                        send(c.fd, m.c_str(),sizeof(m.c_str()),0);
+                    }
                     // create client object
                     client new_client(client_addr, username, clientfd);
                     clients.push_back(new_client);
 
                     //adding to epoll
-                    epoll_event ev;
-                    ev.events = EPOLLIN | EPOLLRDHUP;
-                    ev.data.fd = clientfd;
-                    epoll_ctl(epollfd, EPOLL_CTL_ADD, clientfd, &ev);
+                    addToEpoll(clientfd);
                 }
             }
 
@@ -235,7 +328,7 @@ Enter command to perform an action
             }
 
             else{//user want to leave
-
+                removeUser(fd);
             }
         }
     }
