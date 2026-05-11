@@ -24,6 +24,7 @@ string generateRoomID() {
 
 struct client{
     sockaddr_in sock;//tcp
+    sockaddr_in sockudp;
     string username;
     int fd;
     client(sockaddr_in sock, string username, int fd) : sock(sock), username(username), fd(fd) {}
@@ -33,11 +34,11 @@ int epollfd = epoll_create1(0);
 struct epoll_event events[eventqueuesize];
 
 vector<client>clients;
-struct sockaddr_in discover;//TCP
+struct sockaddr_in control;//TCP
 struct sockaddr_in room;//UDP
 int sockfd_tcp;
 int sockfd_udp;
-socklen_t disclen;
+socklen_t ctrllen;
 socklen_t roomlen;
 
 enum AdminState{
@@ -56,11 +57,11 @@ void addToEpoll(int fd){
     epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.fd = fd;
-    epoll_ctl(epollfd, EPOLL_CTL_ADD, 0, &ev);
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &ev);
 }
 
 void removeUser(int fd){
-    int idx = 0;
+    size_t idx = 0;
     for(auto& c: clients){
         if(fd == c.fd){
             close(fd);
@@ -74,17 +75,17 @@ void removeUser(int fd){
         return;
     }
     
-    clients.erase(clients.begin() + idx);
     string m = clients[idx].username + " left the room.\n";
     cout<<m;
     TCPBroadcast(m);
+    clients.erase(clients.begin() + idx);
     epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, nullptr);
 }
 void removeUser(string username){
-    int idx = 0;
+    size_t idx = 0;
     for(auto& c:clients){
         if(c.username == username){
-            char msg[] = "The admin removed you\n";
+            char msg[] = "0";
             send(c.fd ,msg ,sizeof(msg),0);
             close(c.fd);
             break;
@@ -114,19 +115,19 @@ void initTCPsock(){
         perror("tcp socket");
         exit(EXIT_FAILURE);
     }
-    memset(&discover, 0, sizeof(discover));
-    discover.sin_family = AF_INET;
-    discover.sin_addr.s_addr = INADDR_ANY;
-    discover.sin_port = htons(JOINPORT);
+    memset(&control, 0, sizeof(control));
+    control.sin_family = AF_INET;
+    control.sin_addr.s_addr = INADDR_ANY;
+    control.sin_port = htons(JOINPORT);
 
-    if (bind(sockfd_tcp, (struct sockaddr *)&discover, sizeof(discover)) < 0) {
+    if (bind(sockfd_tcp, (struct sockaddr *)&control, sizeof(control)) < 0) {
         perror("tcp bind");
         close(sockfd_tcp);
         exit(EXIT_FAILURE);
     }
 
     if (listen(sockfd_tcp, CAP) < 0) { 
-        perror("Listen failed");
+        perror("TCP Listen failed");
         close(sockfd_tcp);
         exit(EXIT_FAILURE);
     }
@@ -151,7 +152,7 @@ void initUDPsock(){
     room.sin_port = htons(VIDEOPORT);
 
     if (bind(sockfd_udp, (struct sockaddr *)&room, sizeof(room)) < 0) {
-        perror("bind");
+        perror("UDP bind");
         close(sockfd_tcp);
         exit(EXIT_FAILURE);
     }
@@ -165,7 +166,7 @@ void initUDPsock(){
 
 
 int main(){
-
+    srand(time(nullptr));
     if(epollfd == -1){
         cout<<"cant create an epoll\n";
         return -1;
@@ -175,9 +176,9 @@ int main(){
     initTCPsock();
     initUDPsock();
     
-    string room_id = "abcdef";
+    string room_id = generateRoomID();
 
-    cout<<"Room created with room id \""<<room_id<<"\" on port "<<JOINPORT<<"\n";
+    cout<<"Room created with room id \""<<room_id<<"\" on port "<<JOINPORT;
 
     string control_panel = R"(
 ----------CONTROL PANEL----------
@@ -186,7 +187,6 @@ Enter command to perform an action
     close : close the meeting
     list : list all users
     broadcast : broadcast a message to all users
-
 )";
     cout<<control_panel;
     AdminState admin_state = WAIT_COMMAND;
@@ -217,20 +217,25 @@ Enter command to perform an action
                         }
 
                         else if(input == "list"){
+                            cout<<left<<setw(5)<<"SN"<<setw(20)<<"Username"<<'\n';
+                            cout << string(40, '-') << '\n';
+                            int i = 1;
                             for(client c : clients){
-                                cout<<c.username<<' ';
+                                cout<<left<<setw(5)<<i<<setw(20)<<c.username<<'\n';
+                                i++;
                             }
-                            cout<<'\n';
                             cout<<control_panel;
                         }
 
                         else if(input == "close"){
                             string m ="The room is closed by the admin\n";
+                            cout<<"The room is closed.\n";
                             TCPBroadcast(m);
-                            for(client c : clients){
-                                removeUser(c.fd);
+                            for(int i = clients.size() - 1; i >= 0; i--){
+                                removeUser(clients[i].fd);
                             }
                             close(sockfd_tcp);
+                            close(sockfd_udp);
                             return 0;
                         }
                         else{
@@ -253,9 +258,6 @@ Enter command to perform an action
 
                 }
 
-                //do things
-
-                // cout<<"console boilerplate\n";
             }
 
             else if(fd == sockfd_tcp){//new client joins
@@ -279,11 +281,10 @@ Enter command to perform an action
                         char msg[] = "sorry the room is full\n";
                         send(clientfd ,msg ,sizeof(msg),0);
                         close(clientfd);
+                        continue;
                     }
 
-                    //make non-blocking
-                    fcntl(clientfd, F_SETFL, O_NONBLOCK);
-    
+                    
                     //validating user
                     char buffer[BUFFSIZE];
                     int n = read(clientfd, buffer, BUFFSIZE);
@@ -296,55 +297,85 @@ Enter command to perform an action
                         char msg[] = "incorrect roomid\n";
                         send(clientfd ,msg ,sizeof(msg),0);
                         close(clientfd);
+                        continue;
                     }
                     string username(buffer+6,n-6);
+                    bool found = false;
                     for(auto& c:clients){
                         if(c.username == username){
                             char msg[] = "user already present\n";
                             send(clientfd ,msg ,sizeof(msg),0);
                             close(clientfd);
+                            found = true;
+                            break;
                         }
                     }
-                    char msg[] = "You joined successfully\n";
-                    send(clientfd, msg, sizeof(msg), 0);
-                    cout<<"user "<<username<<" joined\n";
+                    if(!found){
+                        char msg[] = "You joined successfully\n";
+                        send(clientfd, msg, sizeof(msg), 0);
+                        cout<<"user "<<username<<" joined\n";
 
-                    string m = username + " joined the room.\n";
-                    for(client c : clients){
-                        send(c.fd, m.c_str(),sizeof(m.c_str()),0);
+                        string m = username + " joined the room.\n";
+                        TCPBroadcast(m);
+                        // create client object
+                        client new_client(client_addr, username, clientfd);
+                        new_client.sockudp = client_addr;
+                        new_client.sockudp.sin_port = htons(VIDEOPORT);
+                        clients.push_back(new_client);
+
+                        //make non-blocking
+                        fcntl(clientfd, F_SETFL, O_NONBLOCK);
+                        //adding to epoll
+                        addToEpoll(clientfd);
                     }
-                    // create client object
-                    client new_client(client_addr, username, clientfd);
-                    clients.push_back(new_client);
-
-                    //adding to epoll
-                    addToEpoll(clientfd);
                 }
             }
 
             else if(fd == sockfd_udp){//raw data forwarding and advertisment
                 char buff[BUFFSIZE];
                 sockaddr_in client_addr;
-                socklen_t l;
-                int n =recvfrom(sockfd_udp,buff,sizeof(buff),0,(sockaddr* )& client_addr, &l);
-                if(n < 0)continue;
+                socklen_t l = sizeof(client_addr);
+
+                int n = recvfrom(sockfd_udp,buff,sizeof(buff),0,(sockaddr* )& client_addr, &l);
+
+                if(n <= 0)continue;
+
                 if(buff[0] == '1'){ // Request info
                     string m = "1" + room_id;
-                    sendto(sockfd_udp,m.c_str(),sizeof(m.c_str()),0,(sockaddr* )& client_addr,l);
+
+                    sendto( sockfd_udp, m.c_str(), m.size(), 0, (sockaddr* )& client_addr, l);
                 }
+
                 else{ // raw stream data
+                    if(n < 2)continue;
+
                     uint8_t sz =  buff[1];
+                    if(sz > n - 2)continue;
+
                     string user(buff + 2, buff + 2 + sz);
+
                     char* data = buff + 2 + sz;
+
                     int datasize = n - 2 -sz;
+
+                    for(client& c : clients){
+                        if(c.username == user){
+                            c.sockudp = client_addr;
+                            break;
+                        }
+                    }
+
                     vector<uint8_t> pkt;
+
                     pkt.push_back(0);
                     pkt.push_back(sz);
+
                     pkt.insert(pkt.end(),user.begin(),user.end());
                     pkt.insert(pkt.end(),data, data + datasize);
+
                     for(client c : clients){
                         if(c.username == user)continue;
-                        sendto(sockfd_udp,pkt.data(),pkt.size(),0,(sockaddr* )& client_addr,l);
+                        sendto(sockfd_udp, pkt.data(), pkt.size(), 0, (sockaddr* )& c.sockudp, sizeof(c.sockudp));
                     }
                 }
             }
