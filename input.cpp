@@ -85,7 +85,7 @@ bool takeInput(uint8_t* outbuf, int& outlen){
     return true;
 }
 
-void startMicStream(int sockfd, const sockaddr_in& serveraddr, const string& username, atomic<bool>& running){
+void proccessInput(int sockfd, const sockaddr_in& serveraddr, const string& username, atomic<bool>& running){
     thread micThread([=, &running](){
         while(running){
             uint8_t micBuffer[960];
@@ -101,14 +101,7 @@ void startMicStream(int sockfd, const sockaddr_in& serveraddr, const string& use
             sendBuffer.insert(sendBuffer.end(), username.begin(), username.end());
             sendBuffer.insert(sendBuffer.end(), micBuffer, micBuffer + micSize);
 
-            sendto(
-                sockfd,
-                sendBuffer.data(),
-                sendBuffer.size(),
-                0,
-                (sockaddr*)&serveraddr,
-                sizeof(serveraddr)
-            );
+            sendto(sockfd, sendBuffer.data(), sendBuffer.size(), 0, (sockaddr*)&serveraddr, sizeof(serveraddr));
         }
     });
 

@@ -23,8 +23,8 @@ string generateRoomID() {
 }
 
 struct client{
-    sockaddr_in sock;//tcp
-    sockaddr_in sockudp;
+    sockaddr_in sock;//TCP  
+    sockaddr_in sockudp;//UDP
     string username;
     int fd;
     client(sockaddr_in sock, string username, int fd) : sock(sock), username(username), fd(fd) {}
@@ -132,7 +132,6 @@ void initTCPsock(){
         exit(EXIT_FAILURE);
     }
 
-    //adding server tcp fd in events
     fcntl(sockfd_tcp, F_SETFL, O_NONBLOCK);
     addToEpoll(sockfd_tcp);
 
@@ -157,7 +156,6 @@ void initUDPsock(){
         exit(EXIT_FAILURE);
     }
 
-    //adding server udp fd in events
     fcntl(sockfd_udp, F_SETFL, O_NONBLOCK);
     addToEpoll(sockfd_udp);
 
@@ -167,6 +165,7 @@ void initUDPsock(){
 
 int main(){
     srand(time(nullptr));
+
     if(epollfd == -1){
         cout<<"cant create an epoll\n";
         return -1;
@@ -217,8 +216,9 @@ Enter command to perform an action
                         }
 
                         else if(input == "list"){
+                            // These special c++ cout things are for formating
                             cout<<left<<setw(5)<<"SN"<<setw(20)<<"Username"<<'\n';
-                            cout << string(40, '-') << '\n';
+                            cout<<string(40, '-')<<'\n';
                             int i = 1;
                             for(client c : clients){
                                 cout<<left<<setw(5)<<i<<setw(20)<<c.username<<'\n';
@@ -239,7 +239,7 @@ Enter command to perform an action
                             return 0;
                         }
                         else{
-                            cout << "Unknown command\n";
+                            cout<<"Unknown command\n";
                         }
 
                         break;
@@ -261,6 +261,7 @@ Enter command to perform an action
             }
 
             else if(fd == sockfd_tcp){//new client joins
+                // These while loop will handle if multiple clients join at the same time
                 while(1){
                     sockaddr_in client_addr;
                     socklen_t addrlen = sizeof(client_addr);
@@ -285,7 +286,7 @@ Enter command to perform an action
                     }
 
                     
-                    //validating user
+                    // Validating user
                     char buffer[BUFFSIZE];
                     int n = read(clientfd, buffer, BUFFSIZE);
                     if(n<=6){
@@ -331,7 +332,7 @@ Enter command to perform an action
                 }
             }
 
-            else if(fd == sockfd_udp){//raw data forwarding and advertisment
+            else if(fd == sockfd_udp){//raw data forwarding and advertisment(reuqest info)
                 char buff[BUFFSIZE];
                 sockaddr_in client_addr;
                 socklen_t l = sizeof(client_addr);

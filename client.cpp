@@ -182,12 +182,13 @@ int main(int argc,char* argv[]){
     sendto(sockfdtcp, joinmsg.c_str(), joinmsg.size(), 0, (sockaddr* )& servertcp, serverlentcp);
     int n = recvfrom(sockfdtcp, tcpbuffer, BUFFSIZE, 0, (sockaddr* )& servertcp, &serverlentcp);
     cout<<string(tcpbuffer,n);
+    cout<<"Terminate the program to exit the room\n";
 
     initEpoll();
 
     atomic<bool> running(true);
 
-    startMicStream(sockfdudp, serverudp, username, running);
+    proccessInput(sockfdudp, serverudp, username, running);
 
     while(running){
         int n = epoll_wait(epollfd,events,eventqueuesize,-1);

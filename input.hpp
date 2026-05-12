@@ -12,5 +12,4 @@
 
 using namespace std;
 
-bool takeInput(uint8_t* outbuf, int& outlen);
-void startMicStream(int sockfd, const sockaddr_in& serveraddr, const string& username, atomic<bool>& running);
+void proccessInput(int sockfd, const sockaddr_in& serveraddr, const string& username, atomic<bool>& running);
