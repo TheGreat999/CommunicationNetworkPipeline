@@ -128,18 +128,17 @@ int main(int argc,char* argv[]){
 
         char broad[] = "1";
         sendto(broadcastfd,broad,1,0, (sockaddr *)& broadcastaddr, broadcastlen);
-        
+       
         while(true){
             char roomid[7];
             int n = recvfrom(broadcastfd, roomid, 7, 0,(sockaddr* ) &serverudp, &serverlenudp);
             if(n < 0) break;
             roomids.push_back(string(roomid + 1,n - 1));
             server_ips.push_back(string(inet_ntoa(serverudp.sin_addr)));
-
         }
 
         if(!roomids.empty())break;
-    
+        
         cout<<"No room found. Type \"yes\" to rescan again ";
         string r;
         getline(cin,r);
@@ -147,7 +146,6 @@ int main(int argc,char* argv[]){
             close(broadcastfd);
             return 0;
         }
-
     }
 
     cout << left << setw(5)  << "SN" << setw(10) << "ROOM" << setw(25) << "SERVER" << '\n';

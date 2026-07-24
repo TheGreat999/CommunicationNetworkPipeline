@@ -56,7 +56,7 @@ void TCPBroadcast(string msg){
 void addToEpoll(int fd){
     epoll_event ev;
     ev.events = EPOLLIN;
-    ev.data.fd = fd;
+    ev.data.fd = fd;    
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &ev);
 }
 
